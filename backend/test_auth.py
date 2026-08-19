@@ -4,12 +4,12 @@ Run with: python test_auth.py
 """
 
 import requests
- 
+
 BASE_URL = "http://localhost:8000/api"
- 
+
 EMAIL = "test@test.com"
 PASSWORD = "string"
- 
+
 # 1. Login
 login_resp = requests.post(
     f"{BASE_URL}/auth/login",
@@ -17,13 +17,13 @@ login_resp = requests.post(
 )
 print("LOGIN STATUS:", login_resp.status_code)
 print("LOGIN BODY:", login_resp.json())
- 
+
 if login_resp.status_code != 200:
     raise SystemExit("Login failed - stopping here.")
- 
+
 token = login_resp.json()["access_token"]
 headers = {"Authorization": f"Bearer {token}"}
- 
+
 # 2. Create a child
 create_resp = requests.post(
     f"{BASE_URL}/children",
@@ -37,8 +37,18 @@ create_resp = requests.post(
 )
 print("\nCREATE CHILD STATUS:", create_resp.status_code)
 print("CREATE CHILD BODY:", create_resp.json())
- 
+
 # 3. List children
 list_resp = requests.get(f"{BASE_URL}/children", headers=headers)
 print("\nLIST CHILDREN STATUS:", list_resp.status_code)
 print("LIST CHILDREN BODY:", list_resp.json())
+
+# 4. Rate limit check - fire several bad logins in a row and confirm
+#    the server starts rejecting with 429 before all of them succeed.
+print("\n--- Rate limit check (expect a 429 partway through) ---")
+for i in range(7):
+    r = requests.post(
+        f"{BASE_URL}/auth/login",
+        json={"email": EMAIL, "password": "wrong-password"},
+    )
+    print(f"attempt {i + 1}: status {r.status_code}")

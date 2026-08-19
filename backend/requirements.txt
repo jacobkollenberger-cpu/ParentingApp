@@ -11,3 +11,4 @@ email-validator==2.2.0
 python-dotenv==1.0.1
 python-multipart==0.0.12
 cryptography==43.0.3
+slowapi==0.1.10

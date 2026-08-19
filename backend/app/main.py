@@ -4,9 +4,12 @@ FastAPI application entrypoint.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from app.api.routes import audit_logs, auth, children
 from app.core.config import settings
+from app.core.rate_limit import limiter
 
 app = FastAPI(
     title="Parenting App API",
@@ -17,6 +20,9 @@ app = FastAPI(
     docs_url=None if settings.is_production else "/docs",
     redoc_url=None if settings.is_production else "/redoc",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS - tighten allow_origins to your actual frontend domain before deploying.
 app.add_middleware(

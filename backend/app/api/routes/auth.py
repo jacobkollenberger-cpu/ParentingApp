@@ -10,11 +10,12 @@ Security notes:
 - Tokens are short-lived JWTs signed with SECRET_KEY (see core/security.py).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.core.audit import log_action
+from app.core.rate_limit import limiter
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
 from app.schemas.auth import Token, UserCreate, UserLogin, UserResponse
@@ -23,7 +24,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(user_in: UserCreate, db: Session = Depends(get_db)):
+@limiter.limit("10/hour")
+def register(request: Request, user_in: UserCreate, db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.email == user_in.email).first()
     if existing:
         # Generic detail on purpose - don't confirm which emails exist.
@@ -45,7 +47,8 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=Token)
-def login(credentials: UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, credentials: UserLogin, db: Session = Depends(get_db)):
     invalid_credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Incorrect email or password",
