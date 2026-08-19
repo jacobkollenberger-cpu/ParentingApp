@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
 
+    # Field-level encryption for sensitive columns (see app/core/encryption.py)
+    encryption_key: str = ""
+
     # AI
     anthropic_api_key: str = ""
 

@@ -16,6 +16,7 @@ from sqlalchemy import Date, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.encryption import EncryptedString
 from app.db.session import Base
 
 
@@ -33,10 +34,13 @@ class Child(Base):
     first_name: Mapped[str] = mapped_column(String(100))
     date_of_birth: Mapped[date] = mapped_column(Date)
 
-    # SENSITIVE - candidate for field-level encryption
-    allergies: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # SENSITIVE - candidate for field-level encryption
-    medical_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SENSITIVE - encrypted at rest via EncryptedString (Fernet).
+    # Note: encrypted columns can't be searched/filtered on in SQL - if a
+    # future feature needs to query by allergy, that requires a separate
+    # searchable/hashed index, not a wider SELECT on this column.
+    allergies: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
+    # SENSITIVE - encrypted at rest via EncryptedString (Fernet).
+    medical_notes: Mapped[str | None] = mapped_column(EncryptedString, nullable=True)
 
     preferences: Mapped[str | None] = mapped_column(Text, nullable=True)
 
