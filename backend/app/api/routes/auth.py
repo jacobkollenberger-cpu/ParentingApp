@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.core.audit import log_action
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
 from app.schemas.auth import Token, UserCreate, UserLogin, UserResponse
@@ -38,6 +39,8 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    log_action(db, action="register", resource_type="auth", user_id=user.id)
     return user
 
 
@@ -51,10 +54,30 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.email == credentials.email).first()
     if user is None or not verify_password(credentials.password, user.hashed_password):
+        # Log with whatever user_id we have (None if the email didn't
+        # match anyone) - failed-login patterns are exactly what you'd
+        # want to review for brute-force attempts.
+        log_action(
+            db,
+            action="login_failure",
+            resource_type="auth",
+            user_id=user.id if user else None,
+            success=False,
+            detail="incorrect email or password",
+        )
         raise invalid_credentials_exception
 
     if not user.is_active:
+        log_action(
+            db,
+            action="login_failure",
+            resource_type="auth",
+            user_id=user.id,
+            success=False,
+            detail="account inactive",
+        )
         raise invalid_credentials_exception
 
     access_token = create_access_token(data={"sub": str(user.id)})
+    log_action(db, action="login_success", resource_type="auth", user_id=user.id)
     return Token(access_token=access_token)

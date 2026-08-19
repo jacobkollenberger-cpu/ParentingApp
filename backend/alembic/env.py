@@ -17,7 +17,7 @@ from app.db.session import Base
 
 # Import all models here so Base.metadata knows about them.
 # Add new model modules to this list as you create them.
-from app.models import user, child  # noqa: F401
+from app.models import user, child, audit_log  # noqa: F401
 
 config = context.config
 
