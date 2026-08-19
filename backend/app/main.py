@@ -5,7 +5,7 @@ FastAPI application entrypoint.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import children
+from app.api.routes import auth, children
 from app.core.config import settings
 
 app = FastAPI(
@@ -43,4 +43,5 @@ def health_check():
     return {"status": "ok"}
 
 
+app.include_router(auth.router, prefix="/api")
 app.include_router(children.router, prefix="/api")
