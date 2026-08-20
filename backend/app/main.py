@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.api.routes import audit_logs, auth, children
+from app.api.routes import audit_logs, auth, child_members, children
 from app.core.config import settings
 from app.core.rate_limit import limiter
 
@@ -51,4 +51,5 @@ def health_check():
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(children.router, prefix="/api")
+app.include_router(child_members.router, prefix="/api")
 app.include_router(audit_logs.router, prefix="/api")

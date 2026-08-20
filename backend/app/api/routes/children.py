@@ -1,15 +1,14 @@
 """
 Child profile endpoints.
 
-Access control: every query filters by owner_id == current_user.id.
-This is deliberately simple for now (single-owner, no sharing yet) -
-it's the seam where co-parenting permissions get added later without
-restructuring anything else.
+Access control: now based on ChildMember rows, not a single owner_id -
+see app/core/child_access.py. Every read/write requires an active
+membership on the child in question; create/invite-adjacent actions
+additionally require a parent-tier role.
 
-Every read and write is audit-logged, including failed access attempts
-(e.g. requesting a child_id that doesn't belong to the current user) -
+Every read and write is audit-logged, including failed access attempts -
 those failures are exactly what you'd review to spot someone probing for
-records that aren't theirs.
+records they don't have access to.
 """
 
 import uuid
@@ -19,7 +18,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.core.audit import log_action
+from app.core.child_access import require_child_access
 from app.models.child import Child
+from app.models.child_member import ROLE_PARENT, STATUS_ACTIVE, ChildMember
 from app.models.user import User
 from app.schemas.child import ChildCreate, ChildResponse, ChildUpdate
 
@@ -32,8 +33,19 @@ def create_child(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # owner_id retained as a "who originally created this" reference, but
+    # is no longer what access control checks against - see child_access.py.
     child = Child(**child_in.model_dump(), owner_id=current_user.id)
     db.add(child)
+    db.flush()  # get child.id before creating the membership row
+
+    membership = ChildMember(
+        child_id=child.id,
+        user_id=current_user.id,
+        role=ROLE_PARENT,
+        status=STATUS_ACTIVE,
+    )
+    db.add(membership)
     db.commit()
     db.refresh(child)
 
@@ -49,7 +61,12 @@ def list_children(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    children = db.query(Child).filter(Child.owner_id == current_user.id).all()
+    children = (
+        db.query(Child)
+        .join(ChildMember, ChildMember.child_id == Child.id)
+        .filter(ChildMember.user_id == current_user.id, ChildMember.status == STATUS_ACTIVE)
+        .all()
+    )
     log_action(
         db, action="read", resource_type="children",
         user_id=current_user.id, detail=f"listed {len(children)} record(s)",
@@ -59,27 +76,11 @@ def list_children(
 
 @router.get("/{child_id}", response_model=ChildResponse)
 def get_child(
-    child_id: uuid.UUID,
+    access: tuple = Depends(require_child_access()),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    child = (
-        db.query(Child)
-        .filter(Child.id == child_id, Child.owner_id == current_user.id)
-        .first()
-    )
-    if child is None:
-        # Deliberately identical error whether the child doesn't exist
-        # or belongs to someone else - avoids leaking existence of records.
-        # Still logged as a failure either way - a spike in these for one
-        # user is a signal worth reviewing.
-        log_action(
-            db, action="read", resource_type="children",
-            user_id=current_user.id, resource_id=child_id, success=False,
-            detail="not found or not owned by requester",
-        )
-        raise HTTPException(status_code=404, detail="Child not found")
-
+    child, _membership = access
     log_action(
         db, action="read", resource_type="children",
         user_id=current_user.id, resource_id=child.id,
@@ -89,23 +90,16 @@ def get_child(
 
 @router.patch("/{child_id}", response_model=ChildResponse)
 def update_child(
-    child_id: uuid.UUID,
     child_in: ChildUpdate,
+    access: tuple = Depends(require_child_access()),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    child = (
-        db.query(Child)
-        .filter(Child.id == child_id, Child.owner_id == current_user.id)
-        .first()
-    )
-    if child is None:
-        log_action(
-            db, action="update", resource_type="children",
-            user_id=current_user.id, resource_id=child_id, success=False,
-            detail="not found or not owned by requester",
-        )
-        raise HTTPException(status_code=404, detail="Child not found")
+    # NOTE: this currently lets any active member (including caregivers)
+    # update any field, including allergies/medical_notes. The two-party
+    # approval workflow for sensitive fields, and per-role field
+    # restrictions, are intentionally not built yet - see child_member.py.
+    child, _membership = access
 
     updated_fields = list(child_in.model_dump(exclude_unset=True).keys())
     for field, value in child_in.model_dump(exclude_unset=True).items():
@@ -124,27 +118,15 @@ def update_child(
 
 @router.delete("/{child_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_child(
-    child_id: uuid.UUID,
+    access: tuple = Depends(require_child_access(require_parent_tier=True)),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    child = (
-        db.query(Child)
-        .filter(Child.id == child_id, Child.owner_id == current_user.id)
-        .first()
-    )
-    if child is None:
-        log_action(
-            db, action="delete", resource_type="children",
-            user_id=current_user.id, resource_id=child_id, success=False,
-            detail="not found or not owned by requester",
-        )
-        raise HTTPException(status_code=404, detail="Child not found")
-
+    child, _membership = access
     db.delete(child)
     db.commit()
 
     log_action(
         db, action="delete", resource_type="children",
-        user_id=current_user.id, resource_id=child_id,
+        user_id=current_user.id, resource_id=child.id,
     )
